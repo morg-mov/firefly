@@ -1,0 +1,9 @@
+/venv/
+/logs/
+/.vscode/
+/databases/
+/*/__pycache__/
+.env
+/alembic/
+alembic.ini
+config.json
