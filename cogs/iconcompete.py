@@ -1,32 +1,31 @@
 import os
+from io import BytesIO
 from uuid import uuid4
 from datetime import datetime
+from asyncio import run as asyncrun
+from asyncio import sleep
 import discord
 from discord import SlashCommandOptionType as SlashCmdType
 from discord.ext import commands
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
-from dbmodels.iconcompete import Base, Submission, Upvote
-from boto3 import client
-from botocore.client import Config
+from boto3 import client as s3_client
+from botocore.client import Config as S3Config
+from dbmodels.iconcompete import Submission, Upvote, Base
+from tools.iconcompete import create_embed_from_db_entry
+from tools.databases import initialize_database
 
 acceptable_fileends = (".jpg", ".jpeg", ".png", ".gif")
+
+db_uri = "sqlite+aiosqlite:///databases/iconcompete.db"
+rel_filepath = "./databases/"
+filename = "iconcompete.db"
 
 
 def setup(bot: discord.Bot):
     """Define Command Groups"""
     bot.add_cog(IconContest(bot))
-
-
-async def initialize_database(sqlalc_uri: str, filepath: str):
-    if not os.path.isdir(filepath):
-        os.makedirs(filepath)
-
-    engine = create_async_engine(sqlalc_uri)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    await engine.dispose()
 
 
 class IconContest(commands.Cog):
@@ -36,68 +35,102 @@ class IconContest(commands.Cog):
 
     def __init__(self, bot: discord.Bot):
         self.bot = bot
+        self.db_uri = db_uri
+        self.db_filepath = rel_filepath + filename
+        self.r2_client = s3_client(
+            "s3",
+            aws_access_key_id=os.getenv("S3_ACCESS_KEY"),
+            aws_secret_access_key=os.getenv("S3_SECRET_KEY"),
+            endpoint_url=os.getenv("S3_ENDPOINT"),
+            config=S3Config(signature_version="s3v4"),
+        )
+        self.r2_bucket = os.getenv("S3_BUCKET_NAME")
+        self.r2_url = os.getenv("S3_PUBLIC_URL")
 
-    @iconcontest.command()
+        if not os.path.isfile(rel_filepath + filename):
+            asyncrun(initialize_database(db_uri, rel_filepath, Base))
+
+    @iconcontest.command(description="Submit an image/name combo for the icon contest!")
     async def submit(
-        self, ctx: discord.ApplicationContext, image: SlashCmdType.attachment, name: str
+        self,
+        ctx: discord.ApplicationContext,
+        svr_image: SlashCmdType.attachment,
+        svr_name: str,
     ):
-        sqlalchemy_uri = f"sqlite+aiosqlite:///databases/{ctx.guild_id}/iconcompete.db"
-        rel_filepath = f"./databases/{ctx.guild_id}/"
-        filename = "iconcompete.db"
-
-        if not image.filename.endswith(acceptable_fileends):
+        # Check if file ending is foreign
+        if not svr_image.filename.endswith(acceptable_fileends):
             await ctx.respond(
                 "Unsupported filetype. Please submit a .PNG, .JP(E)G, or .GIF file.",
                 ephemeral=True,
             )
             return None
 
+        # Check if server name is over Discord's maximum
+        if len(svr_name) > 100:
+            await ctx.respond(
+                "Server name too long. Must be 100 characters or less.", ephemeral=True
+            )
+            return None
+
+        #
+
+        # Defer to acknowledge command receipt
         await ctx.defer()
 
-        # Check for database existence, create if not existing
-        if not os.path.isfile(rel_filepath + filename):
-            await initialize_database(sqlalchemy_uri, rel_filepath)
-
-        dbengine = create_async_engine(sqlalchemy_uri)
+        # Create database engine/session
+        dbengine = create_async_engine(db_uri)
         localsession = sessionmaker(
             dbengine, expire_on_commit=False, class_=AsyncSession
         )
 
+        # Check if submission has already been made in the server the command has been ran from.
         async with localsession() as session:
-            stmt = select(Submission).where(Submission.user_id == ctx.author.id)
+            stmt = select(Submission).where(
+                Submission.user_id == ctx.author.id, Submission.svr_id == ctx.guild_id
+            )
             result = await session.execute(stmt)
             data = result.scalar_one_or_none()
             if data is not None:
-                await ctx.respond("You've already made a submission!")
+                await ctx.respond(embed=create_embed_from_db_entry(data, "You've already made a submission!", discord.Color.blue()))
+                await dbengine.dispose()
                 return None
 
         # Gather metadata
         submissionid = str(uuid4())
         userid = ctx.author.id
+        serverid = ctx.guild_id
         timestamp = datetime.now().replace(microsecond=0)
-        svr_image = await image.read()
+        file_extension = svr_image.filename.split(".")
+        file_extension = file_extension[len(file_extension) - 1]
+        file_name = f"{submissionid}.{file_extension}"
+        file = BytesIO(await svr_image.read())
 
+        # Acknowledge receipt of submission
+        await ctx.respond("Submission received, processing...")
+
+        # Upload image to R2 Bucket for storage
+        try:
+            self.r2_client.upload_fileobj(file, self.r2_bucket, file_name)
+        except Exception as e:  # i know this should be specific exceptions. blame amazon who made boto3 with 500 million exceptions with no base exception.
+            ctx.edit(
+                f"An error has occurred during upload. Send this to someone who can deal with it.\n\n{e}"
+            )
+
+        # Construct and commit database entry
         async with localsession() as session:
             async with session.begin():
                 submission = Submission(
-                    sub_id=submissionid,
+                    id=submissionid,
+                    svr_id=serverid,
                     user_id=userid,
                     timestamp=timestamp,
-                    svr_name=name,
-                    svr_img=svr_image,
+                    name=svr_name,
+                    filename=file_name,
                 )
                 session.add(submission)
                 await session.commit()
 
         await dbengine.dispose()
 
-        embed = (
-            discord.Embed(
-                colour=discord.Color.green(), title="Submitted!", description=name
-            )
-            .set_image(url=image.url)
-            .set_footer(
-                text=f"Submission ID: {submissionid}\nSubmission Time: {timestamp}"
-            )
-        )
-        await ctx.respond(embed=embed)
+        await sleep(1)
+        await ctx.edit(embed=create_embed_from_db_entry(submission, "Submitted!", discord.Color.green()), content=None)

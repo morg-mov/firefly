@@ -1,27 +1,31 @@
 from datetime import datetime
-from sqlalchemy.orm import Mapped, mapped_column, declarative_base
-from sqlalchemy import Integer, BigInteger, String, DateTime, Text, LargeBinary
+from sqlalchemy.orm import Mapped, mapped_column, declarative_base, relationship
+from sqlalchemy import BigInteger, String, DateTime, Text   , ForeignKey
 
 Base = declarative_base()
-
 class Submission(Base):
-    __tablename__ = "submissions"
+    __tablename__ = "Submissions"
 
-    sub_id: Mapped[str] = mapped_column(String(36), primary_key=True, nullable=False)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, nullable=False)
+    svr_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     timestamp: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    svr_name: Mapped[str] = mapped_column(Text, nullable=False)
-    svr_img: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    filename: Mapped[str] = mapped_column(Text, nullable=False)
+    upvotes: Mapped[list] = relationship("Upvote", back_populates='submission')
 
     def __repr__(self):
-        return f"Submission(id={self.sub_id!r}, user_id={self.user_id!r}, timestamp={self.timestamp.isoformat()!r}, svr_name={self.svr_name!r})"
+        return f"Submission(id={self.id!r}, svr_id={self.svr_id!r}, user_id={self.user_id!r}, name={self.svr_name!r}, img_url={self.img_url!r})"
 
 
 class Upvote(Base):
-    __tablename__ = "upvotes"
+    __tablename__ = "Upvotes"
 
-    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, nullable=False)
-    sub_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, nullable=False)
+    svr_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    sub_id: Mapped[str] = mapped_column(String(36), ForeignKey('Submissions.id'))
+    submission = relationship('Submission', back_populates='upvotes')
 
     def __repr__(self):
-        return f"Upvote(user_id={self.user_id!r}, sub_id={self.sub_id!r})"
+        return f"Upvote(id={self.id!r}, user_id={self.user_id!r}, sub_id={self.sub_id})"

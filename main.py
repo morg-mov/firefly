@@ -85,9 +85,9 @@ def config_save(configdata, path) -> None:
         sys.exit(1)
 
 
-def load_cogs(coglist):
-    for i in coglist:
-        bot.load_extension(f"cogs.{i}")
+def load_cogs(cogs):
+    for cog in cogs:
+        bot.load_extension(f"cogs.{cog}")
 
 
 print(
@@ -104,9 +104,9 @@ if config["debug_log"]:
     logger.info("Debug logging enabled.")
     logger.setLevel(logging.DEBUG)
 
-for i in dir_list:
-    if not os.path.isdir(i):
-        os.makedirs(i)
+for dir_ in dir_list:
+    if not os.path.isdir(dir_):
+        os.makedirs(dir_)
 
 
 @bot.event
@@ -116,7 +116,7 @@ async def on_ready():
 
 @bot.command()
 async def hello(ctx):
-    await ctx.respond(f"Hello {ctx.user.display_name}!")
+    await ctx.respond(f"Hello {ctx.user.name}!")
 
 
 @bot.command()
@@ -126,4 +126,6 @@ async def ping(ctx):
 
 if __name__ == "__main__":
     load_cogs(cog_list)
+    load_dotenv()
+    
     bot.run(config["token"])
