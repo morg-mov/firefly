@@ -14,13 +14,9 @@ from boto3 import client as s3_client
 from botocore.client import Config as S3Config
 from dbmodels.iconcompete import Submission, Upvote, Base
 from tools.iconcompete import create_embed_from_db_entry
-from tools.databases import initialize_database
+from tools.databases import initialize_database, create_database_info
 
 acceptable_fileends = (".jpg", ".jpeg", ".png", ".gif")
-
-db_uri = "sqlite+aiosqlite:///databases/iconcompete.db"
-rel_filepath = "./databases/"
-filename = "iconcompete.db"
 
 
 def setup(bot: discord.Bot):
@@ -32,11 +28,13 @@ class IconContest(commands.Cog):
     iconcontest = discord.SlashCommandGroup(
         "iconcontest", "Commands relating to Icon Contest system."
     )
+    admincommands = iconcontest.create_subgroup(
+        "admin", "Commands for administering icon contests."
+    )
 
     def __init__(self, bot: discord.Bot):
         self.bot = bot
-        self.db_uri = db_uri
-        self.db_filepath = rel_filepath + filename
+        self.db_uri, self.db_dirpath, self.db_filepath = create_database_info("iconcompete.db")
         self.r2_client = s3_client(
             "s3",
             aws_access_key_id=os.getenv("S3_ACCESS_KEY"),
@@ -47,8 +45,8 @@ class IconContest(commands.Cog):
         self.r2_bucket = os.getenv("S3_BUCKET_NAME")
         self.r2_url = os.getenv("S3_PUBLIC_URL")
 
-        if not os.path.isfile(rel_filepath + filename):
-            asyncrun(initialize_database(db_uri, rel_filepath, Base))
+        if not os.path.isfile(self.db_filepath):
+            asyncrun(initialize_database(self.db_uri, self.db_dirpath, Base))
 
     @iconcontest.command(description="Submit an image/name combo for the icon contest!")
     async def submit(
@@ -78,7 +76,7 @@ class IconContest(commands.Cog):
         await ctx.defer()
 
         # Create database engine/session
-        dbengine = create_async_engine(db_uri)
+        dbengine = create_async_engine(self.db_uri)
         localsession = sessionmaker(
             dbengine, expire_on_commit=False, class_=AsyncSession
         )
@@ -134,3 +132,4 @@ class IconContest(commands.Cog):
 
         await sleep(1)
         await ctx.edit(embed=create_embed_from_db_entry(submission, "Submitted!", discord.Color.green()), content=None)
+

@@ -11,3 +11,12 @@ def create_embed_from_db_entry(entry: Submission, title: str, color: discord.Col
                 timestamp=entry.timestamp, 
                 url=image_url
             ).set_footer(text=f"Submission ID: {entry.id}\n\nIf the image doesn't load, Click the link to view the image.").set_image(url=image_url)
+
+def create_database_info(filename: str, async_engine: bool=True):
+    dirpath = "./databases/"
+    filepath = dirpath + filename
+    if async_engine:
+        uri = f"sqlite+aiosqlite:///databases/{filename}"
+    else:
+        uri = f"sqlite:///databases/{filename}"
+    return uri, dirpath, filepath
