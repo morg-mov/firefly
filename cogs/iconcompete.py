@@ -139,3 +139,30 @@ class IconContest(commands.Cog):
             content=None,
         )
 
+    @iconcontest.command(description="Deletes a submission you've made. (Deletion only allowed before contest start)")
+    async def delete(self, ctx: discord.ApplicationContext):
+        # Defer to acknowledge command receipt
+        await ctx.defer(ephemeral=True)
+
+        # Create database engine/session
+        localsession = sessionmaker(
+            self.db_engine, expire_on_commit=False, class_=AsyncSession
+        )
+
+        # Check database for result.
+        async with localsession() as session:
+            stmt = select(Submission).where(Submission.user_id == ctx.author.id)
+            result = await session.execute(stmt)
+            result = result.scalar_one_or_none()
+        
+        # Check if database returned result. If so, delete entry and photo from R2 Bucket.
+        if result is None:
+            await ctx.respond("No submission matching your user data was found.")
+        else:
+            async with localsession() as session:                
+                async with session.begin():
+                    data = await session.get(Submission, result.id)
+                    await session.delete(data)  
+                    self.r2_client.delete_object(Bucket=self.r2_bucket, Key=result.filename)
+
+            await ctx.respond("Submission deleted.")
