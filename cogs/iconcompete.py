@@ -13,7 +13,7 @@ from sqlalchemy.orm import sessionmaker
 from boto3 import client as s3_client
 from botocore.client import Config as S3Config
 from dbmodels.iconcompete import Submission, Upvote, Base
-from tools.iconcompete import create_embed_from_db_entry
+from tools.iconcompete import create_embed_from_model
 from tools.databases import initialize_database, create_database_info
 
 acceptable_fileends = (".jpg", ".jpeg", ".png", ".gif")
@@ -35,6 +35,7 @@ class IconContest(commands.Cog):
     def __init__(self, bot: discord.Bot):
         self.bot = bot
         self.db_uri, self.db_dirpath, self.db_filepath = create_database_info("iconcompete.db")
+        self.db_engine = create_async_engine(self.db_uri)
         self.r2_client = s3_client(
             "s3",
             aws_access_key_id=os.getenv("S3_ACCESS_KEY"),
@@ -76,9 +77,8 @@ class IconContest(commands.Cog):
         await ctx.defer()
 
         # Create database engine/session
-        dbengine = create_async_engine(self.db_uri)
         localsession = sessionmaker(
-            dbengine, expire_on_commit=False, class_=AsyncSession
+            self.db_engine, expire_on_commit=False, class_=AsyncSession
         )
 
         # Check if submission has already been made in the server the command has been ran from.
@@ -89,8 +89,11 @@ class IconContest(commands.Cog):
             result = await session.execute(stmt)
             data = result.scalar_one_or_none()
             if data is not None:
-                await ctx.respond(embed=create_embed_from_db_entry(data, "You've already made a submission!", discord.Color.blue()))
-                await dbengine.dispose()
+                await ctx.respond(
+                    embed=create_embed_from_model(
+                        data, "You've already made a submission!", discord.Color.blue()
+                    )
+                )
                 return None
 
         # Gather metadata
@@ -128,8 +131,11 @@ class IconContest(commands.Cog):
                 session.add(submission)
                 await session.commit()
 
-        await dbengine.dispose()
-
         await sleep(1)
-        await ctx.edit(embed=create_embed_from_db_entry(submission, "Submitted!", discord.Color.green()), content=None)
+        await ctx.edit(
+            embed=create_embed_from_model(
+                submission, "Submitted!", discord.Color.green()
+            ),
+            content=None,
+        )
 
