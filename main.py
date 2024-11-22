@@ -18,7 +18,7 @@ logfile_path = (
     f"./logs/discord-{datetime.now().replace(microsecond=0).isoformat()}.log".replace(":", "-")
 )
 
-cog_list = ["iconcompete"]
+cog_list = ["iconcompete", "interactions"]
 
 dir_list = [
     "./databases"
