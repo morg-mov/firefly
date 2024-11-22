@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 intents = discord.Intents.default()
 # Place any intents you wish for this bot to have here.
 # https://docs.pycord.dev/en/stable/api/data_classes.html#discord.Intents.value
+intents.message_content = True
 
 bot = discord.Bot(
     intents=intents, command_prefix=None, debug_guilds=[1208608149947555970]
@@ -18,7 +19,7 @@ logfile_path = (
     f"./logs/discord-{datetime.now().replace(microsecond=0).isoformat()}.log".replace(":", "-")
 )
 
-cog_list = ["iconcompete", "interactions"]
+cog_list = ["iconcompete", "interactions", "snipe"]
 
 dir_list = [
     "./databases"
